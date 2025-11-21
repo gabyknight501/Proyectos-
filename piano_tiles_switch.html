@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover" />
+<title>Piano Tiles - Web (Switch / 8BitDo compatible)</title>
+<style>
+  :root{
+    --bg:#9fd8ff; --col1:#ff5f6d; --col2:#ffbd69; --col3:#6ee7b7; --col4:#7aa2ff;
+    --panel:rgba(255,255,255,0.85);
+    --hud: #08324b;
+  }
+  html,body{height:100%;margin:0;background:linear-gradient(#bfeaff,var(--bg));font-family:Inter,system-ui,Arial;}
+  .wrap{display:flex;flex-direction:column;align-items:center;padding:10px;box-sizing:border-box;}
+  canvas{border-radius:12px;background:linear-gradient(#ffffffaa,#ffffff22);box-shadow:0 12px 40px rgba(0,0,0,0.12);max-width:100%;}
+  .hud{width:100%;max-width:960px;display:flex;justify-content:space-between;gap:8px;align-items:center;margin:10px 0;}
+  .panel{background:var(--panel);padding:8px 12px;border-radius:10px;color:var(--hud);display:flex;gap:10px;align-items:center}
+  .big{font-weight:700;font-size:18px}
+  .controlsTouch{display:flex;gap:8px;align-items:center}
+  .touchPad{width:calc(25vw - 18px);height:76px;border-radius:10px;background:rgba(255,255,255,0.85);display:flex;align-items:center;justify-content:center;font-size:22px;user-select:none;touch-action:none}
+  .footer{font-size:13px;color:#053;margin-top:8px}
+  /* overlays */
+  .overlay{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:60}
+  .card{background:white;padding:18px;border-radius:12px;max-width:720px;width:94%;box-shadow:0 12px 40px rgba(0,0,0,0.35);text-align:center}
+  .btn{padding:10px 16px;border-radius:10px;border:0;background:#0b84ff;color:white;font-weight:700;cursor:pointer;margin:8px}
+  .btn.ghost{background:white;color:#0b84ff;border:2px solid #e6f0ff}
+  .small{font-size:13px;color:#234}
+  @media(min-width:900px){
+    .touchPad{width:200px}
+  }
+  /* gamepad indicator */
+  #gpStatus{font-size:13px;color:#033}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hud" style="max-width:960px">
+      <div class="panel"><div class="big">Piano Tiles — Web (Switch)</div></div>
+      <div class="panel">
+        <div id="scorePanel">Puntos: <strong id="score">0</strong></div>
+        <div id="bestPanel">Récord: <strong id="best">0</strong></div>
+        <div id="livesPanel">Vidas: <strong id="lives">3</strong></div>
+      </div>
+    </div>
+
+    <canvas id="game" width="960" height="600"></canvas>
+
+    <div class="hud" style="max-width:960px">
+      <div class="panel small">Controles: teclado D F J K • touch (paneles abajo) • gamepad (face buttons o dpad)</div>
+      <div class="panel"><span id="gpStatus">Gamepad: sin detectar</span></div>
+    </div>
+
+    <!-- Touch pads (visible on mobile/console browser) -->
+    <div class="controlsTouch" style="width:100%;max-width:960px;justify-content:space-between;">
+      <div id="pad0" class="touchPad">D</div>
+      <div id="pad1" class="touchPad">F</div>
+      <div id="pad2" class="touchPad">J</div>
+      <div id="pad3" class="touchPad">K</div>
+    </div>
+
+    <div class="footer">Consejo: empareja tu control 8BitDo por Bluetooth con la consola y abre este archivo en el navegador del Switch. Usa los botones A/B/X/Y (o dpad) para tocar las teclas.</div>
+  </div>
+
+  <!-- Start overlay -->
+  <div id="startOverlay" class="overlay">
+    <div class="card">
+      <h2>Piano Tiles — Modo Switch</h2>
+      <p class="small">Soporta Gamepad (Joy-Con / 8BitDo), teclado y táctil. Pulsa Start para jugar. Mejora la velocidad al subir puntos.</p>
+      <div style="margin-top:10px">
+        <button id="startBtn" class="btn">Start</button>
+        <button id="showHelp" class="btn ghost">Cómo conectar mando</button>
+      </div>
+      <p class="small" style="margin-top:8px">Recomendado: usar modo horizontal en Switch y emparejar 8BitDo como un mando estándar.</p>
+    </div>
+  </div>
+
+  <!-- Pause overlay -->
+  <div id="pauseOverlay" class="overlay" style="display:none">
+    <div class="card">
+      <h2>Pausado</h2>
+      <div style="margin-top:12px"><button id="resumeBtn" class="btn">Reanudar</button></div>
+      <div style="margin-top:8px"><button id="quitBtn" class="btn ghost">Salir</button></div>
+    </div>
+  </div>
+
+  <!-- Game Over overlay -->
+  <div id="gameOverOverlay" class="overlay" style="display:none">
+    <div class="card">
+      <h2>Game Over</h2>
+      <p id="finalScore" class="small">Puntos: 0</p>
+      <div style="margin-top:10px">
+        <button id="retryBtn" class="btn">Reintentar</button>
+        <button id="menuBtn" class="btn ghost">Volver al menú</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help (pairing) -->
+  <div id="helpOverlay" class="overlay" style="display:none">
+    <div class="card">
+      <h3>Conectar 8BitDo / Joy-Con vía Bluetooth</h3>
+      <ol style="text-align:left">
+        <li>En Switch: Ajustes → Mandos y sensores → Emparejar mandos → Bluetooth (si tu Switch lo permite con el navegador).</li>
+        <li>En el mando 8BitDo: pulsa el botón de emparejado (o combina START+B según modelo) hasta el LED parpadee.</li>
+        <li>En el navegador del Switch abre este HTML (o súbelo a una URL) y espera que aparezca el estado de gamepad arriba.</li>
+        <li>En muchos 8BitDo, los botones mapeados son: <strong>0=A, 1=B, 2=X, 3=Y</strong>. Dpad: 12=up,13=down,14=left,15=right.</li>
+      </ol>
+      <div style="margin-top:12px"><button id="helpClose" class="btn">Entendido</button></div>
+    </div>
+  </div>
+
+<script>
+/*
+  Piano Tiles web — Single file
+  - 4 columns
+  - Gamepad API support (face buttons + dpad)
+  - Keyboard supports: D F J K (and arrow keys)
+  - Touch pads for mobile / Switch browser
+  - Start / Pause / Game Over
+  - Stores best score in localStorage
+*/
+
+/* ---------------------------
+   Canvas + scaling
+   --------------------------- */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let W = canvas.width, H = canvas.height;
+
+/* responsive scaling to viewport width */
+function resizeCanvas(){
+  const maxW = Math.min(window.innerWidth - 20, 1000);
+  const scale = maxW / 960;
+  canvas.style.width = (960 * scale) + 'px';
+  canvas.style.height = (600 * scale) + 'px';
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+/* ---------------------------
+   Game state
+   --------------------------- */
+let running = false;
+let paused = false;
+let gameOver = false;
+
+let score = 0;
+let lives = 3;
+let best = Number(localStorage.getItem('pt_best') || 0);
+document.getElementById('best').textContent = best;
+
+/* columns & tiles */
+const COLS = 4;
+const colColors = ['var(--col1)','var(--col2)','var(--col3)','var(--col4)'];
+let tiles = []; // {col, y, speed, hit:false}
+
+/* timing / speed */
+let baseSpeed = 220; // px per second initial tile speed (tile moves down)
+let speedMultiplier = 1.0;
+let spawnInterval = 700; // ms initial
+let lastSpawn = 0;
+
+/* hit zone position (y) where you should tap */
+const HIT_Y = 520; // px (canvas coordinates)
+const TILE_HEIGHT = 140;
+const TILE_WIDTH = 220;
+const COL_GAP = 20;
+const LEFT_MARGIN = (W - (COLS * TILE_WIDTH + (COLS -1)*COL_GAP))/2;
+
+/* input states */
+let keyDown = [false,false,false,false]; // columns pressed (D,F,J,K)
+let padDown = [false,false,false,false]; // touch pads
+let gpButtonsPressed = [false,false,false,false]; // gamepad state (transient edge detection)
+let anyGamepad = false;
+let gpIndex = null;
+
+/* audio (simple beeps) */
+let audioCtx = null;
+function ensureAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }
+function beep(freq=880, length=0.08, type='sine'){
+  try{
+    ensureAudio();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.value = 0.08;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start();
+    setTimeout(()=>{ o.stop(); }, length*1000);
+  }catch(e){}
+}
+
+/* ---------------------------
+   Utils
+   --------------------------- */
+function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
+function now(){ return performance.now(); }
+
+/* ---------------------------
+   Tile spawn & update logic
+   --------------------------- */
+function spawnTile(){
+  // spawn random column; occasionally spawn 2 in quick succession for challenge
+  const c = Math.floor(Math.random()*COLS);
+  tiles.push({col:c, y:-TILE_HEIGHT, speed: baseSpeed * speedMultiplier, hit:false});
+}
+
+function updateTiles(dt){
+  // spawn logic
+  lastSpawn += dt*1000;
+  if(lastSpawn >= spawnInterval){
+    lastSpawn = 0;
+    spawnTile();
+    // speed up gradually
+    if(score && score % 8 === 0){
+      speedMultiplier = 1 + Math.min(2.4, score/40); // cap multiplier
+      spawnInterval = Math.max(220, 700 - score*6);
+    }
+  }
+  // update positions
+  for(let t of tiles) t.y += t.speed * dt;
+  // remove old tiles behind screen (missed)
+  for(let i=tiles.length-1;i>=0;i--){
+    if(tiles[i].y > H + 80 && !tiles[i].hit){
+      // missed tile -> lose life
+      tiles.splice(i,1);
+      lives -= 1;
+      updateHUD();
+      beep(180,0.12,'sawtooth');
+      if(lives <= 0) endGame();
+    } else if(tiles[i].y > H + 200) tiles.splice(i,1);
+  }
+}
+
+/* ---------------------------
+   Input handling
+   --------------------------- */
+const keyMap = { // map keyboard codes to columns
+  'KeyD':0, 'KeyF':1, 'KeyJ':2, 'KeyK':3,
+  'ArrowLeft':0, 'ArrowDown':1, 'ArrowUp':2, 'ArrowRight':3
+};
+
+window.addEventListener('keydown', e=>{
+  const k = e.code;
+  if(keyMap[k] !== undefined){
+    const col = keyMap[k];
+    keyDown[col]=true;
+    handlePress(col);
+  }
+  // pause with Escape or Start (Enter)
+  if(e.key === 'Escape' || e.key === 'Pause') togglePause();
+  if(e.key === 'Enter' && !running) startGame();
+});
+
+window.addEventListener('keyup', e=>{
+  const k = e.code;
+  if(keyMap[k] !== undefined){
+    const col = keyMap[k];
+    keyDown[col]=false;
+  }
+});
+
+/* touch pads */
+for(let i=0;i<COLS;i++){
+  const p = document.getElementById('pad'+i);
+  p.addEventListener('touchstart', (ev)=>{
+    ev.preventDefault();
+    padDown[i]=true;
+    handlePress(i);
+  }, {passive:false});
+  p.addEventListener('touchend', (ev)=>{
+    ev.preventDefault();
+    padDown[i]=false;
+  });
+  // mouse support
+  p.addEventListener('mousedown', (ev)=>{ padDown[i]=true; handlePress(i); });
+  p.addEventListener('mouseup', (ev)=>{ padDown[i]=false; });
+}
+
+/* gamepad support (polling) */
+let lastGPScan = 0;
+function scanGamepads(){
+  const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+  anyGamepad = false;
+  for(let i=0;i<gps.length;i++){
+    const gp = gps[i];
+    if(!gp) continue;
+    anyGamepad = true;
+    gpIndex = i;
+    document.getElementById('gpStatus').textContent = `Gamepad: ${gp.id}`;
+    // map gp buttons to columns:
+    // standard mapping: 0=A,1=B,2=X,3=Y ; Dpad: 12 up,13 down,14 left,15 right
+    // We'll consider A/X/DpadLeft/DpadRight etc.
+    const b = gp.buttons;
+    // face buttons
+    if(b[0] && b[0].pressed) { if(!gpButtonsPressed[0]) handlePress(0); gpButtonsPressed[0]=true; } else gpButtonsPressed[0]=false;
+    if(b[1] && b[1].pressed) { if(!gpButtonsPressed[1]) handlePress(1); gpButtonsPressed[1]=true; } else gpButtonsPressed[1]=false;
+    if(b[2] && b[2].pressed) { if(!gpButtonsPressed[2]) handlePress(2); gpButtonsPressed[2]=true; } else gpButtonsPressed[2]=false;
+    if(b[3] && b[3].pressed) { if(!gpButtonsPressed[3]) handlePress(3); gpButtonsPressed[3]=true; } else gpButtonsPressed[3]=false;
+    // dpad mapping fallback (map left, down, up, right to columns 0..3)
+    if(b[14] && b[14].pressed){ if(!gpButtonsPressed[0]) handlePress(0); gpButtonsPressed[0]=true; } // left
+    if(b[13] && b[13].pressed){ if(!gpButtonsPressed[1]) handlePress(1); gpButtonsPressed[1]=true; } // down
+    if(b[12] && b[12].pressed){ if(!gpButtonsPressed[2]) handlePress(2); gpButtonsPressed[2]=true; } // up
+    if(b[15] && b[15].pressed){ if(!gpButtonsPressed[3]) handlePress(3); gpButtonsPressed[3]=true; } // right
+  }
+  if(!anyGamepad){
+    document.getElementById('gpStatus').textContent = 'Gamepad: sin detectar';
+  }
+}
+
+/* ---------------------------
+   Press handling (hit detection)
+   --------------------------- */
+function handlePress(col){
+  // find nearest tile in that column near HIT_Y
+  // convert HIT_Y canvas coordinate
+  let bestIndex = -1;
+  let bestDist = 9999;
+  for(let i=0;i<tiles.length;i++){
+    const t = tiles[i];
+    if(t.col !== col) continue;
+    const dist = Math.abs((t.y + TILE_HEIGHT) - HIT_Y); // bottom of tile vs hit line
+    if(dist < 120 && dist < bestDist && !t.hit){
+      bestIndex = i; bestDist = dist;
+    }
+  }
+  if(bestIndex >= 0){
+    // successful hit
+    tiles[bestIndex].hit = true;
+    // small vanish effect: remove tile
+    tiles.splice(bestIndex,1);
+    score += 1;
+    beep(1200 - Math.min(600, score*6), 0.06, 'sine');
+    updateHUD();
+    // speed up a bit
+    speedMultiplier = 1 + Math.min(2.4, score/40);
+    spawnInterval = Math.max(220, 700 - score*6);
+  } else {
+    // pressed but no tile -> penalize slightly (optional)
+    // small miss beep
+    beep(180,0.09,'sawtooth');
+    // optional: reduce life on wrong press
+    // lives = Math.max(0, lives - 1); updateHUD(); if(lives<=0) endGame();
+  }
+}
+
+/* ---------------------------
+   HUD + game state helpers
+   --------------------------- */
+function updateHUD(){
+  document.getElementById('score').textContent = score;
+  document.getElementById('lives').textContent = lives;
+  if(score > best){ best = score; localStorage.setItem('pt_best', best); document.getElementById('best').textContent = best; }
+}
+
+/* ---------------------------
+   Game start / pause / end
+   --------------------------- */
+function resetGame(){
+  tiles = []; score = 0; lives = 3; baseSpeed = 220; speedMultiplier = 1; spawnInterval = 700; lastSpawn = 0;
+  updateHUD();
+}
+
+function startGame(){
+  resetGame();
+  running = true; paused = false; gameOver = false;
+  document.getElementById('startOverlay').style.display = 'none';
+  document.getElementById('gameOverOverlay').style.display = 'none';
+  document.getElementById('pauseOverlay').style.display = 'none';
+  lastFrame = performance.now();
+  requestAnimationFrame(tick);
+  // resume audio on user gesture
+  try{ ensureAudio(); if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); }catch(e){}
+}
+
+function togglePause(){
+  if(!running) return;
+  paused = !paused;
+  document.getElementById('pauseOverlay').style.display = paused ? '' : 'none';
+  if(!paused){ lastFrame = performance.now(); requestAnimationFrame(tick); }
+}
+
+function endGame(){
+  running = false; gameOver = true;
+  document.getElementById('finalScore').textContent = 'Puntos: ' + score;
+  document.getElementById('gameOverOverlay').style.display = '';
+  if(score > best){ best = score; localStorage.setItem('pt_best', best); document.getElementById('best').textContent = best; }
+}
+
+/* ---------------------------
+   Draw function
+   --------------------------- */
+function draw(){
+  // clear
+  ctx.clearRect(0,0,W,H);
+  // background grid
+  ctx.fillStyle = '#def7ff';
+  ctx.fillRect(0,0,W,H);
+
+  // draw columns
+  for(let c=0;c<COLS;c++){
+    const x = LEFT_MARGIN + c*(TILE_WIDTH + COL_GAP);
+    // background lane
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillRect(x, 0, TILE_WIDTH, H);
+    // separator lines
+    ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+    ctx.strokeRect(x, 0, TILE_WIDTH, H);
+  }
+
+  // draw tiles (descending rectangles)
+  for(let t of tiles){
+    const x = LEFT_MARGIN + t.col*(TILE_WIDTH + COL_GAP);
+    const y = t.y;
+    ctx.fillStyle = colColors[t.col];
+    ctx.fillRect(x, y, TILE_WIDTH, TILE_HEIGHT);
+    // inner stripe
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(x+8, y+8, TILE_WIDTH-16, TILE_HEIGHT-32);
+  }
+
+  // draw hit line
+  ctx.fillStyle = 'rgba(0,0,0,0.08)';
+  ctx.fillRect(0, HIT_Y, W, 6);
+
+  // draw pads indicator
+  for(let c=0;c<COLS;c++){
+    const x = LEFT_MARGIN + c*(TILE_WIDTH + COL_GAP);
+    ctx.fillStyle = 'rgba(0,0,0,0.04)';
+    ctx.fillRect(x, H-72, TILE_WIDTH, 72);
+    ctx.fillStyle = 'rgba(255,255,255,0.0)';
+  }
+
+  // small HUD text
+  ctx.fillStyle = '#033';
+  ctx.font = '14px Inter, Arial';
+  ctx.fillText('Puntos: '+score, 12, 22);
+  ctx.fillText('Vidas: '+lives, 12, 42);
+  ctx.fillText('Récord: '+best, 12, 62);
+}
+
+/* ---------------------------
+   Game loop (tick)
+   --------------------------- */
+let lastFrame = performance.now();
+function tick(ts){
+  if(!running || paused) { lastFrame = ts; return; }
+  const dt = Math.min(0.05, (ts - lastFrame)/1000);
+  lastFrame = ts;
+
+  // update gamepad periodically
+  scanGamepads();
+
+  updateTiles(dt);
+  updateHUD();
+  draw();
+
+  if(running) requestAnimationFrame(tick);
+}
+
+/* ---------------------------
+   UI wiring
+   --------------------------- */
+document.getElementById('startBtn').addEventListener('click', startGame);
+document.getElementById('retryBtn').addEventListener('click', ()=>{ startGame(); });
+document.getElementById('menuBtn').addEventListener('click', ()=>{ document.getElementById('startOverlay').style.display=''; document.getElementById('gameOverOverlay').style.display='none'; running=false; });
+document.getElementById('resumeBtn').addEventListener('click', ()=>{ togglePause(); });
+document.getElementById('quitBtn').addEventListener('click', ()=>{ document.getElementById('startOverlay').style.display=''; document.getElementById('pauseOverlay').style.display='none'; running=false; });
+
+// help overlay
+document.getElementById('showHelp').addEventListener('click', ()=>{ document.getElementById('helpOverlay').style.display=''; });
+document.getElementById('helpClose').addEventListener('click', ()=>{ document.getElementById('helpOverlay').style.display='none'; });
+
+/* keyboard quick pause/start */
+window.addEventListener('keydown', (e)=>{
+  if(e.key === 'p') togglePause();
+  if(e.key === 'Enter' && !running) startGame();
+});
+
+/* initialize */
+resetGame();
+draw();
+
+/* expose some debug on window for console in Switch browser */
+window.pt = { startGame, resetGame, endGame };
+
+</script>
+</body>
+</html>
